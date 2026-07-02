@@ -1,0 +1,29 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track the pinned slingshot source commit (microcosm-rs main)",
+      "managerFilePatterns": ["/(^|/)Dockerfile$/"],
+      "matchStrings": [
+        "ARG SLINGSHOT_REF=(?<currentDigest>[a-f0-9]{40})"
+      ],
+      "currentValueTemplate": "main",
+      "depNameTemplate": "microcosm-rs",
+      "packageNameTemplate": "https://tangled.org/microcosm.blue/microcosm-rs",
+      "datasourceTemplate": "git-refs"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchDepNames": ["microcosm-rs"],
+      "commitMessageTopic": "slingshot source",
+      "commitMessageExtra": "to {{{newDigestShort}}}"
+    }
+  ]
+}
