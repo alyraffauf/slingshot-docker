@@ -18,7 +18,7 @@
 # with `ldd` (only libc/libm/libgcc_s) — so we use distroless/cc: no apt layer,
 # fully digest-pinned, ships ca-certificates and a nonroot (65532) user.
 ARG RUST_IMAGE=rust:1-bookworm@sha256:77fac8b98f9f46062bb680b6d25d5bcaabfc400143952ebc572e924bcbedc3fa
-ARG RUNTIME_IMAGE=gcr.io/distroless/cc-debian12:nonroot@sha256:b0ae8e989418b458e0f25489bc3be523718938a2b70864cc0f6a00af1ddbd985
+ARG RUNTIME_IMAGE=gcr.io/distroless/cc-debian12:nonroot@sha256:fccdbb0a547c14e23fcf4ce8ad62ca5d43b4faae8d22cd292f490fef9946c96e
 
 ########################  build  ##############################################
 FROM ${RUST_IMAGE} AS build
