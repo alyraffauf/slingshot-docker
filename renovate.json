@@ -21,6 +21,13 @@
   ],
   "packageRules": [
     {
+      "description": "Automerge dependency updates after the required Build check passes",
+      "matchManagers": ["dockerfile", "github-actions", "custom.regex"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
       "matchDepNames": ["microcosm-rs"],
       "commitMessageTopic": "slingshot source",
       "commitMessageExtra": "to {{{newDigestShort}}}"
