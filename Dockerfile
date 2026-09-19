@@ -17,7 +17,7 @@
 # statically, the runtime needs nothing but glibc + libgcc + CA certs — verified
 # with `ldd` (only libc/libm/libgcc_s) — so we use distroless/cc: no apt layer,
 # fully digest-pinned, ships ca-certificates and a nonroot (65532) user.
-ARG RUST_IMAGE=rust:1-bookworm@sha256:ae1a730a949f727611a5c684e1e26e5a9bb9885b34f65a442744ca8a61c86ca5
+ARG RUST_IMAGE=rust:1-bookworm@sha256:828077e0f5ed0401fbd9cb5b4d5dedca23bd13c7fe032f3e8b7313e7acd2a57f
 ARG RUNTIME_IMAGE=gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 
 ########################  build  ##############################################
