@@ -1,86 +1,143 @@
 # slingshot-docker
 
-A hash-pinned, env-configurable container image for
-[slingshot](https://tangled.org/microcosm.blue/microcosm-rs/tree/main/slingshot). 
-Upstream ships a Rust binary with no official image, so this builds one.
+Container image for [Slingshot](https://tangled.org/microcosm.blue/microcosm-rs/tree/main/slingshot), an atproto record edge cache.
+The image builds Slingshot from a pinned commit of `microcosm-rs`.
+Renovate tracks upstream `main` and opens a pull request when that commit changes.
 
-## Build
-
-```sh
-./build.sh                                        # -> slingshot:dev (local)
-IMAGE=atcr.io/tranquil.farm/slingshot TAG=latest PUSH=1 ./build.sh
-```
-
-`build.sh` honors `ENGINE` (docker/podman/buildah), `IMAGE`, `TAG`, `PUSH`, and
-`SLINGSHOT_REF`.
-
-## Run (local smoke test)
+## Run the published image
 
 ```sh
-docker run --rm --ulimit nofile=65536:65536 -p 8080:8080 \
-  slingshot:dev --jetstream us-east-1 --cache-dir /cache
+docker run -d --name slingshot \
+	--ulimit nofile=65536:65536 \
+	-p 8080:8080 \
+	-v slingshot-cache:/cache \
+	ghcr.io/alyraffauf/slingshot:latest
 ```
 
-The `--ulimit` is **required**: foyer's identity cache opens many files and dies
-with `Too many open files (os error 24)` under Docker's default 1024 fd limit.
+Open `http://localhost:8080/` to check the static page. The API is under `/xrpc`.
+Raise the file descriptor limit as shown above. The identity cache can exhaust Docker's 1024-descriptor limit.
 
-## Pinning (three layers)
+The image runs as UID and GID `65532` and stores its cache in `/cache`.
+For bind mounts, give that user write access. For Kubernetes volumes, set `fsGroup: 65532`.
+The runtime is distroless and has no shell. Terminate TLS at your ingress or reverse proxy.
 
-Everything that goes into the image is pinned, and none of it depends on
-mutable tags:
+## Update a running container
 
-1. **Base images** — `FROM …@sha256:` digests for both the Rust build image and
-   the distroless/cc runtime.
-2. **Source** — the build does `git checkout <SLINGSHOT_REF>` at an exact
-   commit, not a branch.
-3. **Cargo crates** — `cargo build --locked` fetches every dependency and
-   verifies it against the sha256 checksum recorded in the workspace
-   `Cargo.lock`, and hard-fails if the lock would change.
+Renovate updates the build inputs in this repository. Each merge to `master` builds and publishes:
 
-## Runtime configuration (env vars)
+- `ghcr.io/alyraffauf/slingshot:latest`
+- `ghcr.io/alyraffauf/slingshot:sha-<full-repository-commit>`
 
-slingshot reads all config from `SLINGSHOT_*` env vars. Image defaults:
+Pull the image, then recreate your container with the same configuration and cache volume:
 
-| Env var | Default | Notes |
+```sh
+docker pull ghcr.io/alyraffauf/slingshot:latest
+docker stop slingshot
+docker rm slingshot
+```
+
+Run the command from the previous section again. The named cache volume survives container removal.
+Pulling an image or restarting an existing container does not replace that container's image.
+Use a `sha-...` tag or an image digest when you need a specific published build.
+The SHA tag identifies a commit in this repository, not the upstream Slingshot commit.
+
+## Dependency updates
+
+[renovate.json](renovate.json) covers the following build inputs:
+
+| Input | Pin | Renovate tracks |
 |---|---|---|
-| `SLINGSHOT_JETSTREAM` | `wss://jetstream1.us-east.bsky.network/subscribe` | required upstream; default lets it run out of the box |
-| `SLINGSHOT_BIND` | `0.0.0.0:8080` | HTTP API |
-| `SLINGSHOT_CACHE_DIR` | `/cache` | mount a volume here |
-| `SLINGSHOT_RECORD_CACHE_MEMORY_MB` | `256` | |
-| `SLINGSHOT_RECORD_CACHE_DISK_DB` | `2` | GB, despite the `_DB` name (upstream typo) |
-| `SLINGSHOT_IDENTITY_CACHE_MEMORY_MB` | `256` | |
-| `SLINGSHOT_IDENTITY_CACHE_DISK_DB` | `2` | GB |
-| `SLINGSHOT_PLC_DIRECTORY` | (upstream default) | |
-| `SLINGSHOT_JETSTREAM_NO_ZSTD` | unset | set to `true` to disable zstd |
-| `SLINGSHOT_COLLECT_METRICS` | unset | set `true` to serve prometheus metrics |
-| `SLINGSHOT_BIND_METRICS` | `[::]:8765` | only with metrics enabled |
-| `SLINGSHOT_HEALTHCHECK` | unset | optional healthcheck URL |
+| Slingshot source and static files | `SLINGSHOT_REF` in `Dockerfile` | The latest commit on upstream `microcosm-rs` `main`, through the `git-refs` custom manager |
+| Rust compiler and build tools | `RUST_IMAGE` digest | `rust:1-bookworm` |
+| Runtime libraries and CA certificates | `RUNTIME_IMAGE` digest | `gcr.io/distroless/cc-debian12:nonroot` |
+| Dockerfile frontend | `# syntax=` digest | `docker/dockerfile:1` |
+| GitHub Actions | Action commit digests | Version tags and their digests |
+| GitHub-hosted runner | `runs-on` version | Ubuntu runner releases |
 
-ACME env vars (`SLINGSHOT_ACME_*`) are intentionally left unset: TLS is
-terminated at the ingress, so the container serves plain HTTP.
+Docker tags select the release line to monitor. The digest selects the exact image used to build.
+The Rust and runtime images currently use Debian 12. A move to another Debian release requires a coordinated change to both image names.
 
-## Notes
+Slingshot's Rust crates come from the `Cargo.lock` at the pinned upstream commit.
+`cargo build --locked` preserves those versions and fails if the lockfile needs to change.
+Renovate in this repository does not update individual crates in the remotely cloned workspace.
+Crate updates arrive when upstream updates its manifests and lockfile, then Renovate advances `SLINGSHOT_REF` here.
+A new compiler or base image alone does not update Slingshot or its crates.
 
-- Runs as nonroot (uid/gid **65532**). Mount the cache volume with
-  `fsGroup: 65532` so it's writable.
-- Ports: **8080** (HTTP), **8765** (metrics, opt-in).
-- Runtime is `gcr.io/distroless/cc-debian12:nonroot`. OpenSSL is pulled in
-  (`cargo tree -i openssl-sys`) but built **vendored/static** because
-  `jetstream` enables `tokio-tungstenite`'s `native-tls-vendored`, so the binary
-  links no system libssl (`ldd` shows only glibc/libgcc). `SSL_CERT_FILE` is set
-  so the vendored OpenSSL finds distroless's CA bundle. If you'd rather not
-  vendor, switch `RUNTIME_IMAGE` to a pinned `debian:bookworm-slim` and add
-  `ca-certificates libssl3` (and drop `native-tls-vendored`); `./pin.sh` handles
-  that digest too.
-- **Health probes:** slingshot's `--healthcheck` flag is an *outbound* ping to a
-  URL (healthchecks.io-style), not an HTTP endpoint. There's no `/health`
-  route — use a **TCP probe on 8080** for k8s liveness/readiness. `/` serves a
-  static page (shipped in the image) if you prefer an HTTP GET check.
-- **No capability needed:** upstream's `setcap CAP_NET_BIND_SERVICE` note is
-  only for binding low ports on bare metal. This image binds 8080, so it runs
-  fine as nonroot with no added capabilities.
-- **File descriptors (required):** the identity cache opens many files.
-  Confirmed to crash with `Too many open files` under a 1024 fd limit. Raise it:
-  `--ulimit nofile=65536:65536` for docker/podman. In k8s, containerd's default
-  `LimitNOFILE` is usually ~1048576 (fine), but if you see fd exhaustion, bump it
-  at the node/runtime level — there's no per-pod nofile field.
+Renovate is configured to automerge dependency PRs after GitHub's required `Build and push` check passes.
+Every PR runs that check without publishing. Merges to `master` publish the image.
+
+To check update status, open the [Dependency Dashboard](https://github.com/alyraffauf/slingshot-docker/issues/3).
+Its detected dependencies should include `microcosm-rs main@<commit>` under `regex`, plus the Docker and GitHub Actions dependencies.
+Compare `SLINGSHOT_REF` with upstream when you want to check the source directly:
+
+```sh
+git ls-remote https://tangled.org/microcosm.blue/microcosm-rs refs/heads/main
+```
+
+## Build locally
+
+```sh
+./build.sh
+```
+
+This builds `slingshot:dev` using the defaults in `Dockerfile`.
+Run it with the same options as the published image.
+`build.sh` accepts these environment variables:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ENGINE` | `docker` | `docker`, `podman`, or `buildah` |
+| `IMAGE` | `slingshot` | Image name without a tag |
+| `TAG` | `dev` | Image tag |
+| `PUSH` | `0` | Set to `1` to publish with your configured registry credentials |
+| `SLINGSHOT_REF` | Dockerfile default | Override the upstream source commit for this build |
+
+For example, to build with Podman:
+
+```sh
+ENGINE=podman ./build.sh
+```
+
+To override base images or other Dockerfile arguments, invoke your build engine directly with `--build-arg NAME=value`.
+CI publishes Linux AMD64 images. Other architectures require separate build validation.
+
+## Runtime configuration
+
+Set `SLINGSHOT_*` environment variables with `docker run -e NAME=value`, or pass CLI flags after the image name.
+CLI flags override environment variables. For the available flags, run:
+
+```sh
+docker run --rm ghcr.io/alyraffauf/slingshot:latest --help
+```
+
+The image sets the following defaults:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SLINGSHOT_JETSTREAM` | `wss://jetstream1.us-east.bsky.network/subscribe` | Jetstream source |
+| `SLINGSHOT_BIND` | `0.0.0.0:8080` | HTTP listener |
+| `SLINGSHOT_CACHE_DIR` | `/cache` | Disk cache directory |
+| `SLINGSHOT_RECORD_CACHE_MEMORY_MB` | `256` | Record memory cache, in MB |
+| `SLINGSHOT_RECORD_CACHE_DISK_DB` | `2` | Record disk cache, in GB |
+| `SLINGSHOT_IDENTITY_CACHE_MEMORY_MB` | `256` | Identity memory cache, in MB |
+| `SLINGSHOT_IDENTITY_CACHE_DISK_DB` | `2` | Identity disk cache, in GB |
+
+The `_DISK_DB` spelling is an upstream typo. Both values are in gigabytes.
+The image also points `SSL_CERT_FILE` and `SSL_CERT_DIR` at the runtime CA certificates so vendored OpenSSL can verify HTTPS connections.
+
+These optional settings use upstream defaults unless you override them:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SLINGSHOT_PLC_DIRECTORY` | `https://plc.directory` | PLC directory |
+| `SLINGSHOT_JETSTREAM_NO_ZSTD` | `false` | Set to `true` to disable Jetstream zstd compression |
+| `SLINGSHOT_COLLECT_METRICS` | `false` | Set to `true` to enable Prometheus metrics |
+| `SLINGSHOT_BIND_METRICS` | `[::]:8765` | Metrics listener when collection is enabled |
+| `SLINGSHOT_HEALTHCHECK` | Unset | URL for outbound healthcheck pings |
+
+Publish port `8765` if you enable metrics and need access outside the container.
+For IPv4 metrics access, set `SLINGSHOT_BIND_METRICS=0.0.0.0:8765`.
+
+`SLINGSHOT_HEALTHCHECK` sends outbound pings. Slingshot has no `/health` endpoint.
+Use a TCP probe on port `8080`, or an HTTP GET on `/` to check that the server responds.
+Neither check proves that Jetstream data is current.
