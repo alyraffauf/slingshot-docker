@@ -8,7 +8,7 @@
 #   3. cargo crates -> `cargo build --locked` against the workspace Cargo.lock
 #
 # Every ARG has a working default; override any of them at build time with
-# `--build-arg NAME=value` (or run ./pin.sh to refresh the pinned defaults).
+# `--build-arg NAME=value`. Renovate refreshes the pinned defaults through PRs.
 
 # --- pinned base images (override for a rebuild against newer bases) ----------
 # Build on the full `rust` image (buildpack-deps): it ships perl + a C toolchain,
@@ -37,9 +37,9 @@ RUN git clone "${SLINGSHOT_REPO}" . \
 # for edition 2024, which slingshot requires.
 RUN rm -f rust-toolchain.toml
 
-# --locked: refuse to build if Cargo.lock would change. Every crates.io dep is
-# verified against its sha256 in the workspace Cargo.lock; the atrium git deps
-# are pinned to an exact rev by that lock as well.
+# --locked: use upstream's Cargo.lock without changing dependency versions.
+# Renovate updates the upstream source commit, which brings that commit's lockfile.
+# crates.io checksums and git dependency revisions come from that lockfile.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
     cargo build --release --locked -p "${CARGO_PKG}" \

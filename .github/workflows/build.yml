@@ -5,12 +5,8 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
-    # Build (without pushing) so Renovate's base-image / source-commit bumps are
-    # validated before merge — those PRs touch the Dockerfile or this workflow.
-    paths:
-      - Dockerfile
-      - .dockerignore
-      - .github/workflows/build.yml
+    # Run on every PR so the required Build and push check is never skipped,
+    # including when only Renovate configuration or documentation changes.
   workflow_dispatch:
 
 env:
