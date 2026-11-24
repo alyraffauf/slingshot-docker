@@ -25,7 +25,7 @@ FROM ${RUST_IMAGE} AS build
 
 # --- pinned source ------------------------------------------------------------
 ARG SLINGSHOT_REPO=https://tangled.org/microcosm.blue/microcosm-rs
-ARG SLINGSHOT_REF=d280bfe749cb009ac71dc9dc95c2cca113f1ec5c
+ARG SLINGSHOT_REF=c89c64d1005c45882a46c235a7b8a709abc92eb2
 ARG CARGO_PKG=slingshot
 
 WORKDIR /src
